@@ -6,7 +6,6 @@ if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
       ...serviceAccount,
-      // Fixes the most common 'Invalid PEM' error on Vercel
       privateKey: serviceAccount.private_key?.replace(/\\n/g, '\n'),
     }),
   });

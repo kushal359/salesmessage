@@ -58,7 +58,7 @@ export async function POST(req: Request) {
         break
 
       case 'message.received':
-        result = await handleInboundmsg(data)
+        // result = await handleInboundmsg(data)
         break
 
       case 'call.recording_available':
@@ -128,7 +128,7 @@ async function handleInboundmsg(
 
     const convo = await fetchConversation(data.message.conversation_id)
     if (!convo) throw new Error('Conversation not found')
-
+      console.log(data)
     const msgIn = {
       id,
       communication_type: 'Message InBound',
@@ -184,7 +184,7 @@ async function handleCallOut(
 }
 
 /* =========================
-   GET HANDLER (FIXED)
+   GET HANDLER
 ========================= */
 
 export async function GET(req: Request) {

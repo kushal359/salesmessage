@@ -9,14 +9,13 @@ import {
   Group,
   Text,
   Stack,
-  Select,
-  Table,
-  ScrollArea,
+  Select
 } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
 import style from "./Content.module.css"
 import { fetchTeams } from '@/app/lib/fetchteams'
 import { fetchMembers } from '@/app/lib/fetchmembers'
+import { LineChart } from '@mantine/charts'
 
 type Team = {
   id: number;
@@ -39,6 +38,7 @@ interface Message {
   receiver_id: number;
   sender_id: number;
   caller_id?: number;
+  team_id?: number;
 }
 
 export function MainContent() {
@@ -46,9 +46,10 @@ export function MainContent() {
   const [loading, setLoading] = useState(true)
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null)
+  const [selectedMembers, setSelectedMembers] = useState<string | null>(null)
   const [orgdata, setOrgData] = useState<Message[]>([])
   const [membernames, setMembernames] = useState<Member[]>([])
-  
+
   /**
    * Fetch messages 
    */
@@ -63,19 +64,14 @@ export function MainContent() {
         const end = new Date(`${value[1]}`).toISOString()
         const team = selectedDepartment
 
-
-
         const res = await fetch(`/api/webhook/message?start=${start}&end=${end}&team=${team}`)
 
         if (!res.ok) {
           const errorText = await res.text()
-          // setOrgData([])
           throw new Error(errorText || "Failed request")
-          
         }
 
         const data = await res.json()
-        console.log(data)
         setOrgData(data)
       } catch (err) {
         console.error("Fetch error:", err)
@@ -94,14 +90,6 @@ export function MainContent() {
     fetchTeams().then((res) => setTeams(res || []))
   }, [])
 
-  const departments = teams.map((item) => ({
-    value: item.id.toString(),
-    label: item.name,
-  }))
-
-  const heading =
-    departments.find((dept) => dept.value === selectedDepartment)?.label ?? null
-
   /**
    * Fetch Members
    */
@@ -115,8 +103,21 @@ export function MainContent() {
     })
   }, [])
 
+  const departments = teams.map((item) => ({
+    value: item.id.toString(),
+    label: item.name,
+  }))
+
+  const membersselect = membernames.map((member) => ({
+    value: member.id.toString(),
+    label: member.full_name
+  }))
+
+  const heading =
+    departments.find((dept) => dept.value === selectedDepartment)?.label ?? null
+
   /**
-   * Grouped stats (top cards)
+   * Grouped stats (overall)
    */
   const grouped = useMemo(() => {
     return orgdata.reduce<Record<string, Message[]>>((acc, item) => {
@@ -134,63 +135,95 @@ export function MainContent() {
   ]
 
   /**
-   * Member-wise stats
+   * Selected Member Stats
    */
-  const memberStats = useMemo(() => {
-    const stats: Record<number, {
-      name: string;
-      inboundMsg: number;
-      outboundMsg: number;
-      inboundCall: number;
-      outboundCall: number;
-    }> = {}
+  const selectedMemberStats = useMemo(() => {
+    if (!selectedMembers) return null
 
-    const memberMap: Record<number, string> = {}
-    membernames.forEach((m) => {
-      memberMap[m.id] = m.full_name
-    })
+    const memberId = Number(selectedMembers)
+
+    const stats = {
+      name: membernames.find((m) => m.id === memberId)?.full_name || "Unknown",
+      inboundMsg: 0,
+      outboundMsg: 0,
+      inboundCall: 0,
+      outboundCall: 0,
+    }
 
     orgdata.forEach((msg) => {
       const type = msg.communication_type
 
-      let memberId: number | null = null
-
-      if (type === "Message InBound") {
-        memberId = msg.receiver_id
-      } else if (type === "Message OutBound") {
-        memberId = msg.sender_id
-      } else if (type === "Call OutBound") {
-        memberId = msg.caller_id ?? null
-      } else if (type === "Call InBound") {
-        memberId = msg.receiver_id
+      if (type === "Message InBound" && msg.receiver_id === memberId) {
+        stats.inboundMsg++
       }
 
-      if (memberId == null) return
-
-      if (!stats[memberId]) {
-        stats[memberId] = {
-          name: memberMap[memberId] || "Unknown",
-          inboundMsg: 0,
-          outboundMsg: 0,
-          inboundCall: 0,
-          outboundCall: 0,
-        }
+      if (type === "Message OutBound" && msg.sender_id === memberId) {
+        stats.outboundMsg++
       }
 
-      if (type === "Message InBound") stats[memberId].inboundMsg++
-      if (type === "Message OutBound") stats[memberId].outboundMsg++
-      if (type === "Call InBound") stats[memberId].inboundCall++
-      if (type === "Call OutBound") stats[memberId].outboundCall++
+      if (type === "Call InBound" && msg.receiver_id === memberId) {
+        stats.inboundCall++
+      }
+
+      if (type === "Call OutBound" && msg.caller_id === memberId) {
+        stats.outboundCall++
+      }
     })
 
-    return Object.entries(stats).map(([id, data]) => ({
-      id,
-      ...data,
-    }))
-  }, [orgdata, membernames])
+    return stats
+  }, [selectedMembers, orgdata, membernames])
+
+ const chartData = useMemo(() => {
+  const map: Record<
+    string,
+    {
+      date: string
+      msgInbound: number
+      msgOutbound: number
+      callInbound: number
+      callOutbound: number
+    }
+  > = {}
+
+  orgdata.forEach((msg) => {
+    const date = new Date(msg.createdAt._seconds * 1000)
+      .toISOString()
+      .split('T')[0]
+
+    if (!map[date]) {
+      map[date] = {
+        date,
+        msgInbound: 0,
+        msgOutbound: 0,
+        callInbound: 0,
+        callOutbound: 0,
+      }
+    }
+
+    if (msg.communication_type === "Message InBound") {
+      map[date].msgInbound++
+    }
+
+    if (msg.communication_type === "Message OutBound") {
+      map[date].msgOutbound++
+    }
+
+    if (msg.communication_type === "Call InBound") {
+      map[date].callInbound++
+    }
+
+    if (msg.communication_type === "Call OutBound") {
+      map[date].callOutbound++
+    }
+  })
+
+  return Object.values(map).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  )
+}, [orgdata])
 
 
-    /**
+  /**
    * Loading delay
    */
   useEffect(() => {
@@ -228,71 +261,75 @@ export function MainContent() {
             </Grid.Col>
 
             <Grid.Col span={4}>
-              <Skeleton visible={loading}>
-                <Select
-                  label="Select Department"
-                  data={departments}
-                  value={selectedDepartment}
-                  onChange={setSelectedDepartment}
-                />
-              </Skeleton>
+              <Grid>
+                <Grid.Col span={6}>
+                  <Skeleton visible={loading}>
+                    <Select
+                      label="Select Department"
+                      data={departments}
+                      value={selectedDepartment}
+                      onChange={setSelectedDepartment}
+                    />
+                  </Skeleton>
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <Skeleton visible={loading}>
+                    <Select
+                      label="Select Member"
+                      data={membersselect}
+                      value={selectedMembers}
+                      onChange={setSelectedMembers}
+                    />
+                  </Skeleton>
+                </Grid.Col>
+              </Grid>
             </Grid.Col>
           </Grid>
         </Grid.Col>
 
-        {/* Top Stats */}
+        {/* Top Stats (Dynamic) */}
         {statsConfig.map((item) => {
-          const count = grouped[item.key]?.length || 0
+          let count = 0
+
+          if (selectedMembers && selectedMemberStats) {
+            if (item.key === "Message InBound") count = selectedMemberStats.inboundMsg
+            if (item.key === "Message OutBound") count = selectedMemberStats.outboundMsg
+            if (item.key === "Call InBound") count = selectedMemberStats.inboundCall
+            if (item.key === "Call OutBound") count = selectedMemberStats.outboundCall
+          } else {
+            count = grouped[item.key]?.length || 0
+          }
 
           return (
             <Grid.Col key={item.key} span={{ base: 12, md: 6, lg: 3 }}>
               <Skeleton visible={loading}>
-                <Card shadow="sm" padding="lg" withBorder>
-                  <Group justify="center">
-                    <Stack>
-                      <Text fw={700}>{item.label}</Text>
-                      <Text>{count}</Text>
-                    </Stack>
+                <Card radius="md" p="lg" withBorder shadow='md'>
+                  <Group justify="space-between">
+                    <Text size="sm" c="dimmed">{item.label}</Text>
+                    <Text fw={900} size="xl">{count}</Text>
                   </Group>
                 </Card>
               </Skeleton>
             </Grid.Col>
           )
         })}
-
-        {/* Table */}
-        <Grid.Col span={12}>
-          <Card withBorder>
-            <Text fw={700} mb="sm">Agent Performance</Text>
-
-            <ScrollArea>
-              <Table striped highlightOnHover withTableBorder>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Name</Table.Th>
-                    <Table.Th>In Msg</Table.Th>
-                    <Table.Th>Out Msg</Table.Th>
-                    <Table.Th>In Call</Table.Th>
-                    <Table.Th>Out Call</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-
-                <Table.Tbody>
-                  {memberStats.map((member) => (
-                    <Table.Tr key={member.id}>
-                      <Table.Td>{member.name}</Table.Td>
-                      <Table.Td>{member.inboundMsg}</Table.Td>
-                      <Table.Td>{member.outboundMsg}</Table.Td>
-                      <Table.Td>{member.inboundCall}</Table.Td>
-                      <Table.Td>{member.outboundCall}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </ScrollArea>
-          </Card>
-        </Grid.Col>
-
+      <Grid.Col span={12}>
+        <Card withBorder shadow="md" p="lg">
+        <LineChart
+          withLegend
+          h={500}
+          data={chartData}
+          dataKey="date"
+          series={[
+            { name: "msgInbound", label: "Message Inbound", color: "blue" },
+            { name: "msgOutbound", label: "Message Outbound", color: "green" },
+            { name: "callInbound", label: "Call Inbound", color: "orange" },
+            { name: "callOutbound", label: "Call Outbound", color: "red" },
+          ]}
+          curveType="linear"
+        />
+        </Card>
+      </Grid.Col>
       </Grid>
     </Container>
   )
