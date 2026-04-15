@@ -61,7 +61,7 @@ export function MainContent() {
 
         const start = new Date(`${value[0]}`).toISOString()
         const end = new Date(`${value[1]}`).toISOString()
-        const team = selectedDepartment? selectedDepartment : 0
+        const team = selectedDepartment
 
 
 
@@ -69,7 +69,7 @@ export function MainContent() {
 
         if (!res.ok) {
           const errorText = await res.text()
-          setOrgData([])
+          // setOrgData([])
           throw new Error(errorText || "Failed request")
           
         }

@@ -1,10 +1,9 @@
 import admin from 'firebase-admin'
-import serviceAccount from "../../firebase_config.json"
 import { ServiceAccount } from 'firebase-admin'
 
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount as ServiceAccount),
+    credential: admin.credential.cert(process.env.FIREBASE_SERVICE_ACCOUNT as ServiceAccount),
   })
 }
 

@@ -208,7 +208,7 @@ export async function GET(req: Request) {
     const teamId =
       team !== null && !isNaN(Number(team)) ? Number(team) : null
 
-
+    console.log("start",startDate,"end",endDate,"team",teamId)
     let query: FirebaseFirestore.Query = firebase
       .collection('SalesMessageLogs')
       .where('createdAt', '>=', startDate)
