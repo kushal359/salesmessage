@@ -1,9 +1,21 @@
+'use client'
+
 import { useEffect, useState, useMemo } from 'react'
-import { Container, Grid, Skeleton, Card, Group, Text, Stack, Select,Table, ScrollArea } from '@mantine/core'
+import {
+  Container,
+  Grid,
+  Skeleton,
+  Card,
+  Group,
+  Text,
+  Stack,
+  Select,
+  Table,
+  ScrollArea,
+} from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
 import style from "./Content.module.css"
 import { fetchTeams } from '@/app/lib/fetchteams'
-import { fetchConversation } from '@/app/lib/fetchcommunication'
 import { fetchMembers } from '@/app/lib/fetchmembers'
 
 type Team = {
@@ -29,95 +41,51 @@ interface Message {
   caller_id?: number;
 }
 
-type Conversation = {
-  inbox_id: number;
-};
-
 export function MainContent() {
   const [value, setValue] = useState<[string | null, string | null]>([null, null])
-  const [loading, setloading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [teams, setTeams] = useState<Team[]>([])
-  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
-  const [orgdata, setOrgData] = useState<Message[]>([]);
-  const [conversations, setConversations] = useState<Record<string, Conversation>>({})
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null)
+  const [orgdata, setOrgData] = useState<Message[]>([])
   const [membernames, setMembernames] = useState<Member[]>([])
-  const chunkArray = <T,>(arr: T[], size: number): T[][] => {
-  return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, i * size + size)
-  );
-};
-
+  
   /**
-   * Fetch messages
+   * Fetch messages 
    */
   useEffect(() => {
     if (!value || !value[0] || !value[1]) return;
 
     const load = async () => {
       try {
-        const start = `${value[0]}T00:00:00.000Z`
-        const end = `${value[1]}T23:59:59.999Z`
+        setLoading(true)
 
-        const res = await fetch(`/api/webhook/message?start=${start}&end=${end}`)
+        const start = new Date(`${value[0]}`).toISOString()
+        const end = new Date(`${value[1]}`).toISOString()
+        const team = selectedDepartment? selectedDepartment : 0
+
+
+
+        const res = await fetch(`/api/webhook/message?start=${start}&end=${end}&team=${team}`)
+
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error("API ERROR:", errorText);
-          throw new Error(errorText || "Failed request");
+          const errorText = await res.text()
+          setOrgData([])
+          throw new Error(errorText || "Failed request")
+          
         }
 
         const data = await res.json()
+        console.log(data)
         setOrgData(data)
       } catch (err) {
-        console.error(err)
+        console.error("Fetch error:", err)
+      } finally {
+        setLoading(false)
       }
     }
 
     load()
-  }, [value])
-
-  /**
-   * Conversation IDs
-   */
-  const conversation_ids = useMemo(() => {
-    return [...new Set(orgdata.map((item)=>item.conversation_id))]
-  }, [orgdata])
-
-  /**
-   * Fetch Conversations (ignore failures)
-   */
-  useEffect(() => {
-  if (!conversation_ids.length) return;
-
-  const loadConversations = async () => {
-    const batches = chunkArray(conversation_ids, 5); // 👈 5 at a time
-
-    const mapped: Record<string, Conversation> = {};
-
-    for (const batch of batches) {
-      try {
-        const results = await Promise.allSettled(
-          batch.map((id) => fetchConversation(id))
-        );
-
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled" && result.value) {
-            const id = batch[index];
-            mapped[id] = result.value;
-          }
-        });
-
-        // 👇 small delay to protect API quota
-        await new Promise((r) => setTimeout(r, 200));
-      } catch (err) {
-        console.error("Batch failed:", err);
-      }
-    }
-
-    setConversations(mapped);
-  };
-
-  loadConversations();
-}, [conversation_ids]);
+  }, [value, selectedDepartment])
 
   /**
    * Fetch Teams
@@ -129,56 +97,44 @@ export function MainContent() {
   const departments = teams.map((item) => ({
     value: item.id.toString(),
     label: item.name,
-  }));
+  }))
 
   const heading =
-    departments.find((dept) => dept.value === selectedDepartment)?.label ?? null;
+    departments.find((dept) => dept.value === selectedDepartment)?.label ?? null
 
   /**
-   * Filter by department (inbox_id)
+   * Fetch Members
    */
-  const filteredData = useMemo(() => {
-    if (!selectedDepartment) return orgdata;
-
-    return orgdata.filter((msg) => {
-      const convo = conversations[msg.conversation_id];
-      return convo?.inbox_id === Number(selectedDepartment);
-    });
-  }, [orgdata, conversations, selectedDepartment]);
-
-  /**
-   * Fetch Members (only id + full_name)
-   */
-  useEffect(()=>{
-    fetchMembers().then((res)=> {
+  useEffect(() => {
+    fetchMembers().then((res) => {
       const cleaned = (res || []).map((item: Member) => ({
         id: item.id,
         full_name: item.full_name,
-      }));
-      setMembernames(cleaned);
+      }))
+      setMembernames(cleaned)
     })
-  },[])
+  }, [])
 
   /**
-   * Global grouped stats (top 4 cards)
+   * Grouped stats (top cards)
    */
   const grouped = useMemo(() => {
-    return filteredData.reduce<Record<string, Message[]>>((acc, item) => {
-      const type = item.communication_type;
-      (acc[type] ||= []).push(item);
-      return acc;
-    }, {});
-  }, [filteredData]);
+    return orgdata.reduce<Record<string, Message[]>>((acc, item) => {
+      const type = item.communication_type
+      ;(acc[type] ||= []).push(item)
+      return acc
+    }, {})
+  }, [orgdata])
 
   const statsConfig = [
     { label: "Total Inbound Message", key: "Message InBound" },
     { label: "Total Outbound Message", key: "Message OutBound" },
     { label: "Total Outbound Calls", key: "Call OutBound" },
     { label: "Total Inbound Calls", key: "Call InBound" },
-  ];
+  ]
 
   /**
-   *  Member-wise stats
+   * Member-wise stats
    */
   const memberStats = useMemo(() => {
     const stats: Record<number, {
@@ -187,29 +143,29 @@ export function MainContent() {
       outboundMsg: number;
       inboundCall: number;
       outboundCall: number;
-    }> = {};
+    }> = {}
 
-    const memberMap: Record<number, string> = {};
+    const memberMap: Record<number, string> = {}
     membernames.forEach((m) => {
-      memberMap[m.id] = m.full_name;
-    });
+      memberMap[m.id] = m.full_name
+    })
 
-    filteredData.forEach((msg) => {
-      const type = msg.communication_type;
+    orgdata.forEach((msg) => {
+      const type = msg.communication_type
 
-      let memberId: number | null = null;
+      let memberId: number | null = null
 
       if (type === "Message InBound") {
-        memberId = msg.receiver_id;
+        memberId = msg.receiver_id
       } else if (type === "Message OutBound") {
-        memberId = msg.sender_id;
+        memberId = msg.sender_id
       } else if (type === "Call OutBound") {
-        memberId = msg.caller_id ?? null;
+        memberId = msg.caller_id ?? null
       } else if (type === "Call InBound") {
-        memberId = msg.receiver_id;
+        memberId = msg.receiver_id
       }
 
-      if (!memberId) return;
+      if (memberId == null) return
 
       if (!stats[memberId]) {
         stats[memberId] = {
@@ -218,28 +174,28 @@ export function MainContent() {
           outboundMsg: 0,
           inboundCall: 0,
           outboundCall: 0,
-        };
+        }
       }
 
-      if (type === "Message InBound") stats[memberId].inboundMsg++;
-      if (type === "Message OutBound") stats[memberId].outboundMsg++;
-      if (type === "Call InBound") stats[memberId].inboundCall++;
-      if (type === "Call OutBound") stats[memberId].outboundCall++;
-    });
+      if (type === "Message InBound") stats[memberId].inboundMsg++
+      if (type === "Message OutBound") stats[memberId].outboundMsg++
+      if (type === "Call InBound") stats[memberId].inboundCall++
+      if (type === "Call OutBound") stats[memberId].outboundCall++
+    })
 
     return Object.entries(stats).map(([id, data]) => ({
       id,
       ...data,
-    }));
-  }, [filteredData, membernames]);
+    }))
+  }, [orgdata, membernames])
 
-  /**
+
+    /**
    * Loading delay
    */
   useEffect(() => {
-    setTimeout(() => setloading(false), 2000)
+    setTimeout(() => setLoading(false), 2000)
   }, [])
-
   return (
     <Container px={100} fluid my="sm">
       <Grid>
@@ -286,7 +242,7 @@ export function MainContent() {
 
         {/* Top Stats */}
         {statsConfig.map((item) => {
-          const count = grouped[item.key]?.length || 0;
+          const count = grouped[item.key]?.length || 0
 
           return (
             <Grid.Col key={item.key} span={{ base: 12, md: 6, lg: 3 }}>
@@ -301,40 +257,41 @@ export function MainContent() {
                 </Card>
               </Skeleton>
             </Grid.Col>
-          );
+          )
         })}
 
-       <Grid.Col span={12}>
-  <Card withBorder>
-    <Text fw={700} mb="sm">Agent Performance</Text>
+        {/* Table */}
+        <Grid.Col span={12}>
+          <Card withBorder>
+            <Text fw={700} mb="sm">Agent Performance</Text>
 
-    <ScrollArea>
-      <Table striped highlightOnHover withTableBorder>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Name</Table.Th>
-            <Table.Th>In Msg</Table.Th>
-            <Table.Th>Out Msg</Table.Th>
-            <Table.Th>In Call</Table.Th>
-            <Table.Th>Out Call</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
+            <ScrollArea>
+              <Table striped highlightOnHover withTableBorder>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th>In Msg</Table.Th>
+                    <Table.Th>Out Msg</Table.Th>
+                    <Table.Th>In Call</Table.Th>
+                    <Table.Th>Out Call</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
 
-        <Table.Tbody>
-          {memberStats.map((member) => (
-            <Table.Tr key={member.id}>
-              <Table.Td>{member.name}</Table.Td>
-              <Table.Td>{member.inboundMsg}</Table.Td>
-              <Table.Td>{member.outboundMsg}</Table.Td>
-              <Table.Td>{member.inboundCall}</Table.Td>
-              <Table.Td>{member.outboundCall}</Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </ScrollArea>
-  </Card>
-</Grid.Col>
+                <Table.Tbody>
+                  {memberStats.map((member) => (
+                    <Table.Tr key={member.id}>
+                      <Table.Td>{member.name}</Table.Td>
+                      <Table.Td>{member.inboundMsg}</Table.Td>
+                      <Table.Td>{member.outboundMsg}</Table.Td>
+                      <Table.Td>{member.inboundCall}</Table.Td>
+                      <Table.Td>{member.outboundCall}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          </Card>
+        </Grid.Col>
 
       </Grid>
     </Container>
