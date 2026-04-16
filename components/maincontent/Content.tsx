@@ -40,6 +40,14 @@ interface Message {
   team_id?: number;
 }
 
+type ChartItem = {
+  date: string
+  msgInbound: number
+  msgOutbound: number
+  callInbound: number
+  callOutbound: number
+}
+
 export function MainContent() {
   const [startDate, setStartDate] = useState<string | null>(null)
   const [endDate, setEndDate] = useState<string | null>(null)
@@ -185,55 +193,67 @@ export function MainContent() {
   /**
    * Chart
    */
+  function generateDailySeries(start: string, end: string) {
+  const dates: string[] = []
+
+  const current = new Date(start)
+  const last = new Date(end)
+
+  current.setHours(0, 0, 0, 0)
+  last.setHours(0, 0, 0, 0)
+
+  while (current <= last) {
+    dates.push(current.toISOString().split('T')[0])
+    current.setDate(current.getDate() + 1)
+  }
+
+  return dates
+}
+
+
   const chartData = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        date: string
-        msgInbound: number
-        msgOutbound: number
-        callInbound: number
-        callOutbound: number
+  if (!startDate || !endDate) return []
+
+  const map: Record<string, ChartItem> = {}
+
+  // Step 1: group existing data
+  orgdata.forEach((msg) => {
+    const date = new Date(msg.createdAt._seconds * 1000)
+      .toISOString()
+      .split('T')[0]
+
+    if (!map[date]) {
+      map[date] = {
+        date,
+        msgInbound: 0,
+        msgOutbound: 0,
+        callInbound: 0,
+        callOutbound: 0,
       }
-    > = {}
+    }
 
-    orgdata.forEach((msg) => {
-      const date = new Date(msg.createdAt._seconds * 1000)
-        .toISOString()
-        .split('T')[0]
+    if (msg.communication_type === "Message InBound") map[date].msgInbound++
+    if (msg.communication_type === "Message OutBound") map[date].msgOutbound++
+    if (msg.communication_type === "Call InBound") map[date].callInbound++
+    if (msg.communication_type === "Call OutBound") map[date].callOutbound++
+  })
 
-      if (!map[date]) {
-        map[date] = {
-          date,
-          msgInbound: 0,
-          msgOutbound: 0,
-          callInbound: 0,
-          callOutbound: 0,
-        }
+  // Step 2: generate full date range
+  const allDates = generateDailySeries(startDate, endDate)
+
+  // Step 3: fill missing dates
+  return allDates.map((date) => {
+    return (
+      map[date] || {
+        date,
+        msgInbound: 0,
+        msgOutbound: 0,
+        callInbound: 0,
+        callOutbound: 0,
       }
-
-      if (msg.communication_type === "Message InBound") {
-        map[date].msgInbound++
-      }
-
-      if (msg.communication_type === "Message OutBound") {
-        map[date].msgOutbound++
-      }
-
-      if (msg.communication_type === "Call InBound") {
-        map[date].callInbound++
-      }
-
-      if (msg.communication_type === "Call OutBound") {
-        map[date].callOutbound++
-      }
-    })
-
-    return Object.values(map).sort((a, b) =>
-      a.date.localeCompare(b.date)
     )
-  }, [orgdata])
-
+  })
+}, [orgdata, startDate, endDate])
   return (
     <Container px={100} fluid my="sm">
       <Grid>
