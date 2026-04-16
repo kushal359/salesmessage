@@ -3,7 +3,6 @@ import {
   IconCalendarStats,
   IconDeviceDesktopAnalytics,
   IconHome2,
-  IconLogout,
   IconSettings,
   IconUser,
 } from '@tabler/icons-react'
@@ -43,6 +42,7 @@ const mockdata = [
 
 export function NavbarMinimal() {
   const [active, setActive] = useState(2)
+  const [connected] = useState(false);
 
   const links = mockdata.map((link, index) => (
     <NavbarLink
@@ -52,6 +52,17 @@ export function NavbarMinimal() {
       onClick={() => setActive(index)}
     />
   ))
+    const connect = () => {
+    const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI;
+
+    if (!redirectUri) {
+      throw new Error('Missing NEXT_PUBLIC_REDIRECT_URI');
+    }
+
+    const url = `https://api.salesmessage.com/pub/v2.2/oauth/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+    window.location.href = url;
+  };
 
   return (
     <nav className={classes.navbar}>
@@ -66,7 +77,13 @@ export function NavbarMinimal() {
       </div>
 
       <Stack justify="center" gap={0}>
-        <NavbarLink icon={IconLogout} label="Logout" />
+      {!connected && (
+        <NavbarLink
+          icon={IconUser}
+          label="Connect Salesmsg"
+          // onClick={connect}
+        />
+      )}
       </Stack>
     </nav>
   )

@@ -8,7 +8,6 @@ import {
   Card,
   Group,
   Text,
-  Stack,
   Select
 } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
@@ -42,8 +41,10 @@ interface Message {
 }
 
 export function MainContent() {
-  const [value, setValue] = useState<[string | null, string | null]>([null, null])
-  const [loading, setLoading] = useState(true)
+  const [startDate, setStartDate] = useState<string | null>(null)
+  const [endDate, setEndDate] = useState<string | null>(null)
+
+  const [loading, setLoading] = useState(false)
   const [teams, setTeams] = useState<Team[]>([])
   const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null)
   const [selectedMembers, setSelectedMembers] = useState<string | null>(null)
@@ -51,24 +52,32 @@ export function MainContent() {
   const [membernames, setMembernames] = useState<Member[]>([])
 
   /**
-   * Fetch messages 
+   * Fetch messages
    */
   useEffect(() => {
-    if (!value || !value[0] || !value[1]) return;
+    if (!startDate || !endDate) return
 
     const load = async () => {
       try {
         setLoading(true)
 
-        const start = new Date(`${value[0]}`).toISOString()
-        const end = new Date(`${value[1]}`).toISOString()
+        const start = new Date(startDate)
+        start.setHours(0, 0, 0, 0)
+
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+
+        const startISO = start.toISOString()
+        const endISO = end.toISOString()
+
         const team = selectedDepartment
 
-        const res = await fetch(`/api/webhook/message?start=${start}&end=${end}&team=${team}`)
+        const res = await fetch(
+          `/api/webhook/message?start=${startISO}&end=${endISO}&team=${team}`
+        )
 
         if (!res.ok) {
-          const errorText = await res.text()
-          throw new Error(errorText || "Failed request")
+          throw new Error(await res.text())
         }
 
         const data = await res.json()
@@ -81,7 +90,7 @@ export function MainContent() {
     }
 
     load()
-  }, [value, selectedDepartment])
+  }, [startDate, endDate, selectedDepartment])
 
   /**
    * Fetch Teams
@@ -117,7 +126,7 @@ export function MainContent() {
     departments.find((dept) => dept.value === selectedDepartment)?.label ?? null
 
   /**
-   * Grouped stats (overall)
+   * Grouped stats
    */
   const grouped = useMemo(() => {
     return orgdata.reduce<Record<string, Message[]>>((acc, item) => {
@@ -173,67 +182,65 @@ export function MainContent() {
     return stats
   }, [selectedMembers, orgdata, membernames])
 
- const chartData = useMemo(() => {
-  const map: Record<
-    string,
-    {
-      date: string
-      msgInbound: number
-      msgOutbound: number
-      callInbound: number
-      callOutbound: number
-    }
-  > = {}
-
-  orgdata.forEach((msg) => {
-    const date = new Date(msg.createdAt._seconds * 1000)
-      .toISOString()
-      .split('T')[0]
-
-    if (!map[date]) {
-      map[date] = {
-        date,
-        msgInbound: 0,
-        msgOutbound: 0,
-        callInbound: 0,
-        callOutbound: 0,
-      }
-    }
-
-    if (msg.communication_type === "Message InBound") {
-      map[date].msgInbound++
-    }
-
-    if (msg.communication_type === "Message OutBound") {
-      map[date].msgOutbound++
-    }
-
-    if (msg.communication_type === "Call InBound") {
-      map[date].callInbound++
-    }
-
-    if (msg.communication_type === "Call OutBound") {
-      map[date].callOutbound++
-    }
-  })
-
-  return Object.values(map).sort((a, b) =>
-    a.date.localeCompare(b.date)
-  )
-}, [orgdata])
-
-
   /**
-   * Loading delay
+   * Chart
    */
-  useEffect(() => {
-    setTimeout(() => setLoading(false), 2000)
-  }, [])
+  const chartData = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        date: string
+        msgInbound: number
+        msgOutbound: number
+        callInbound: number
+        callOutbound: number
+      }
+    > = {}
+
+    orgdata.forEach((msg) => {
+      const date = new Date(msg.createdAt._seconds * 1000)
+        .toISOString()
+        .split('T')[0]
+
+      if (!map[date]) {
+        map[date] = {
+          date,
+          msgInbound: 0,
+          msgOutbound: 0,
+          callInbound: 0,
+          callOutbound: 0,
+        }
+      }
+
+      if (msg.communication_type === "Message InBound") {
+        map[date].msgInbound++
+      }
+
+      if (msg.communication_type === "Message OutBound") {
+        map[date].msgOutbound++
+      }
+
+      if (msg.communication_type === "Call InBound") {
+        map[date].callInbound++
+      }
+
+      if (msg.communication_type === "Call OutBound") {
+        map[date].callOutbound++
+      }
+    })
+
+    return Object.values(map).sort((a, b) =>
+      a.date.localeCompare(b.date)
+    )
+  }, [orgdata])
+
   return (
     <Container px={100} fluid my="sm">
       <Grid>
+
+        {/* Title */}
         <Grid.Col>
-          <Text fw={900} py={10} className={style.headingmain} size='xl'>
+          <Text fw={900} py={10} className={style.headingmain} size="xl">
             ANALYTICS
           </Text>
         </Grid.Col>
@@ -241,17 +248,29 @@ export function MainContent() {
         {/* Filters */}
         <Grid.Col span={12}>
           <Grid>
+
+            {/* Date Pickers */}
             <Grid.Col span={4}>
-              <Skeleton visible={loading}>
-                <DatePickerInput
-                  type="range"
-                  label="Pick dates range"
-                  value={value}
-                  onChange={setValue}
-                />
-              </Skeleton>
+              <Grid>
+                <Grid.Col span={6}>
+                  <DatePickerInput
+                    label="Start date"
+                    value={startDate}
+                    onChange={setStartDate}
+                  />
+                </Grid.Col>
+
+                <Grid.Col span={6}>
+                  <DatePickerInput
+                    label="End date"
+                    value={endDate}
+                    onChange={setEndDate}
+                  />
+                </Grid.Col>
+              </Grid>
             </Grid.Col>
 
+            {/* Department */}
             <Grid.Col span={4}>
               <Skeleton visible={loading}>
                 <Text className={style.heading} size="xl" fw={700}>
@@ -260,34 +279,33 @@ export function MainContent() {
               </Skeleton>
             </Grid.Col>
 
+            {/* Selects */}
             <Grid.Col span={4}>
               <Grid>
                 <Grid.Col span={6}>
-                  <Skeleton visible={loading}>
-                    <Select
-                      label="Select Department"
-                      data={departments}
-                      value={selectedDepartment}
-                      onChange={setSelectedDepartment}
-                    />
-                  </Skeleton>
+                  <Select
+                    label="Select Department"
+                    data={departments}
+                    value={selectedDepartment}
+                    onChange={setSelectedDepartment}
+                  />
                 </Grid.Col>
+
                 <Grid.Col span={6}>
-                  <Skeleton visible={loading}>
-                    <Select
-                      label="Select Member"
-                      data={membersselect}
-                      value={selectedMembers}
-                      onChange={setSelectedMembers}
-                    />
-                  </Skeleton>
+                  <Select
+                    label="Select Member"
+                    data={membersselect}
+                    value={selectedMembers}
+                    onChange={setSelectedMembers}
+                  />
                 </Grid.Col>
               </Grid>
             </Grid.Col>
+
           </Grid>
         </Grid.Col>
 
-        {/* Top Stats (Dynamic) */}
+        {/* Stats */}
         {statsConfig.map((item) => {
           let count = 0
 
@@ -303,7 +321,7 @@ export function MainContent() {
           return (
             <Grid.Col key={item.key} span={{ base: 12, md: 6, lg: 3 }}>
               <Skeleton visible={loading}>
-                <Card radius="md" p="lg" withBorder shadow='md'>
+                <Card radius="md" p="lg" withBorder shadow="md">
                   <Group justify="space-between">
                     <Text size="sm" c="dimmed">{item.label}</Text>
                     <Text fw={900} size="xl">{count}</Text>
@@ -313,23 +331,26 @@ export function MainContent() {
             </Grid.Col>
           )
         })}
-      <Grid.Col span={12}>
-        <Card withBorder shadow="md" p="lg">
-        <LineChart
-          withLegend
-          h={500}
-          data={chartData}
-          dataKey="date"
-          series={[
-            { name: "msgInbound", label: "Message Inbound", color: "blue" },
-            { name: "msgOutbound", label: "Message Outbound", color: "green" },
-            { name: "callInbound", label: "Call Inbound", color: "orange" },
-            { name: "callOutbound", label: "Call Outbound", color: "red" },
-          ]}
-          curveType="linear"
-        />
-        </Card>
-      </Grid.Col>
+
+        {/* Chart */}
+        <Grid.Col span={12}>
+          <Card withBorder shadow="md" p="lg">
+            <LineChart
+              withLegend
+              h={500}
+              data={chartData}
+              dataKey="date"
+              series={[
+                { name: "msgInbound", label: "Message Inbound", color: "blue" },
+                { name: "msgOutbound", label: "Message Outbound", color: "green" },
+                { name: "callInbound", label: "Call Inbound", color: "orange" },
+                { name: "callOutbound", label: "Call Outbound", color: "red" },
+              ]}
+              curveType="linear"
+            />
+          </Card>
+        </Grid.Col>
+
       </Grid>
     </Container>
   )
